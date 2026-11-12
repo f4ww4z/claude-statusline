@@ -908,6 +908,20 @@ xlarge-simple)
     ;;
 esac
 
+# --- last commit line (all presets): 📝 <short hash> <subject> -------------
+if LC=$(git -C "$CUR_DIR" --no-optional-locks log -1 --format='%h %s' 2>/dev/null) && [[ -n "$LC" ]]; then
+    LC_H=${LC%% *}; LC_S=${LC#* }; [[ "$LC_S" == "$LC" ]] && LC_S=""
+    TW=$({ stty size </dev/tty; } 2>/dev/null | cut -d' ' -f2)
+    [[ "$TW" =~ ^[0-9]+$ ]] || TW=${COLUMNS:-}
+    if [[ "$TW" =~ ^[0-9]+$ ]]; then
+        AV=$(( TW - 4 - 3 - ${#LC_H} - 1 ))
+        if (( AV < 2 )); then LC_S=""
+        elif (( ${#LC_S} > AV )); then LC_S="${LC_S:0:AV-1}…"; fi
+    fi
+    if [[ -n "$PLAIN" ]]; then LC_I="commit "; else LC_I="📝 "; fi
+    emit "${c_yellow}${LC_I}${LC_H}${RST} ${LC_S}"
+fi
+
 for L in "${LINES[@]}"; do
     printf '%s%s\n' "$L" "$CLR"
 done
