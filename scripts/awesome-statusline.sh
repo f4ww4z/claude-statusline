@@ -72,6 +72,30 @@ NARROW=""
 
 input=$(cat)
 
+# ---------------------------------------------------------------- rate-limit cache
+# Claude Code only sends rate_limits after a session's first API response, so a
+# fresh session would show "loading..". Remember the last rate_limits seen and
+# reuse them until the session reports its own; a window whose resets_at has
+# passed shows 0% (it has reset). Sessions on an API key / cloud provider never use it.
+RL_CACHE="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}/.awesome-statusline-rl.json"
+if command -v jq >/dev/null 2>&1; then
+    rl_now=$(printf '%s' "$input" | jq -c '.rate_limits | select(type == "object" and length > 0)' 2>/dev/null)
+    if [[ -n "$rl_now" ]]; then
+        if [[ "$rl_now" != "$(cat "$RL_CACHE" 2>/dev/null)" ]]; then
+            printf '%s' "$rl_now" > "$RL_CACHE.$$" 2>/dev/null && mv -f "$RL_CACHE.$$" "$RL_CACHE" 2>/dev/null
+        fi
+    elif [[ -f "$RL_CACHE" && -z "${ANTHROPIC_API_KEY:-}${ANTHROPIC_AUTH_TOKEN:-}${CLAUDE_CODE_USE_BEDROCK:-}${CLAUDE_CODE_USE_VERTEX:-}${CLAUDE_CODE_USE_FOUNDRY:-}" ]]; then
+        merged=$(printf '%s' "$input" | jq -c --slurpfile c "$RL_CACHE" --argjson now "$(date +%s)" '
+            def ep: if type == "number" then (if . > 100000000000 then ./1000 else . end)
+                    elif type == "string" then (tonumber? // fromdateiso8601? // 0) else 0 end;
+            ($c[0] // {} | if type == "object" then . else {} end
+             | with_entries(if (.value | type) == "object" and .value.resets_at != null and ((.value.resets_at | ep) <= $now)
+                             then .value = {used_percentage: 0} else . end)) as $rl
+            | if ($rl | length) > 0 then .rate_limits = $rl else . end' 2>/dev/null)
+        [[ -n "$merged" ]] && input=$merged
+    fi
+fi
+
 if ! command -v jq >/dev/null 2>&1; then
     printf '%s\n' "Awesome Statusline: jq not found — re-run the installer (it installs jq)."
     exit 0
